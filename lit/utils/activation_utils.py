@@ -1,5 +1,5 @@
 import torch
-
+import sys
 
 def _forward_cache_outputs(
     model, tokenizer, inputs, modules_to_hook, token_idx, no_grad=True, **kwargs
@@ -12,7 +12,7 @@ def _forward_cache_outputs(
         if token_idx is None:
             cache.append(output)
         else:
-            cache.append(output[:, token_idx, :])
+            cache.append(output[:, token_idx-1:token_idx, :])
         return None
 
     hook_handles = [
@@ -135,7 +135,8 @@ def generate_substitute_layer_single(
     token_idx=0,
     generate=False,
     no_grad=False,
-    max_new_tokens=20,
+    max_new_tokens=50,
+    replace_last_token_only=True,
     **kwargs,
 ):
     assert len(modules_to_hook) == len(module_activations)
@@ -184,31 +185,46 @@ def generate_substitute_layer_single(
         def forward_hook(module, input, output):
             new_output = output[0] if isinstance(output, tuple) else output
             if "substitute_by_mask" in kwargs:
-                _, read_seq_len, _ = module_activations[idx].shape
-                _, write_seq_len, _ = new_output.shape
-                for i in range(len(new_output)):
-                    read_mask_len = kwargs["substitute_by_mask"][0][i].item()
-                    write_mask_len = kwargs["substitute_by_mask"][1][i].item()
-                    # same as line 87
-                    write_mask_len += num_hook_triggered[idx]
-                    new_output[i] = torch.cat(
-                        [
-                            new_output[i][: write_seq_len - write_mask_len, :],
-                            module_activations[idx][
-                                i, read_seq_len - read_mask_len :, :
+                                # 🔹 NEW SWITCH 🔹
+                if replace_last_token_only:
+                    read_mask_len = kwargs["substitute_by_mask"][0].tolist()
+                    write_mask_len = kwargs["substitute_by_mask"][1].tolist()
+                    for b_idx, (r,w) in enumerate(zip(read_mask_len, write_mask_len)):
+                        # new_output[b_idx, w-1:w, :] = module_activations[idx][b_idx, r-1, :] # what we did for the playful-night-35
+                        new_output[b_idx, w-1:w, :] = module_activations[idx][b_idx, r, :]
+                        # print(module_activations[idx][b_idx, r-1, :10])
+                        # print(r, w)
+                    
+                    # sys.exit()
+                else: 
+                    _, read_seq_len, _ = module_activations[idx].shape
+                    _, write_seq_len, _ = new_output.shape
+                    for i in range(len(new_output)):
+                        read_mask_len = kwargs["substitute_by_mask"][0][i].item()
+                        write_mask_len = kwargs["substitute_by_mask"][1][i].item()
+                        # same as line 87
+                        write_mask_len += num_hook_triggered[idx]
+                        new_output[i] = torch.cat(
+                            [
+                                new_output[i][: write_seq_len - write_mask_len, :],
+                                module_activations[idx][
+                                    i, read_seq_len - read_mask_len :, :
+                                ],
+                                new_output[i][
+                                    write_seq_len - (write_mask_len - read_mask_len) :, :
+                                ],
                             ],
-                            new_output[i][
-                                write_seq_len - (write_mask_len - read_mask_len) :, :
-                            ],
-                        ],
-                        dim=0,
-                    )
+                            dim=0,
+                        )
             else:
+
+                # existing behavior
                 new_activations = module_activations[idx].expand(-1, len(token_idx), -1)
                 assert new_output[:, token_idx, :].shape == new_activations.shape
                 new_output[:, token_idx, :] = new_activations
 
             num_hook_triggered[idx] += 1
+
             if isinstance(output, tuple):
                 return (new_output,) + output[1:]
             return new_output
@@ -254,7 +270,7 @@ def latent_qa(
     mask_verbs=False,
     shift_position_ids=False,
     generate=False,
-    max_new_tokens=100,
+    max_new_tokens=50, # was originally 100
     cache_target_model_grad=False,
     no_grad=False,
 ):
@@ -275,7 +291,10 @@ def latent_qa(
     )
     verb_lengths = None
     if mask_verbs:
+        # print(activation_cache[0].shape)
         activation_cache = torch.stack(activation_cache, dim=0)
+        # print(activation_cache.shape)
+        
         num_modules, bs, read_seq_len, _ = activation_cache.shape
 
         # Create a tensor with that is filled with activations for <bos> tokens
@@ -289,6 +308,7 @@ def latent_qa(
 
         # Mask everything except for the non-verb (last) tokens
         verb_lengths = batch["verb_lengths"]
+        # print(verb_lengths)
         counter = torch.arange(read_seq_len, device=activation_cache.device)
         # lengths - verb_lengths - 1 is total length of input not including bos token and verb
 
@@ -315,6 +335,8 @@ def latent_qa(
             decoder_model.device
         )
     activation_cache = [a.to(decoder_model.device) for a in activation_cache]
+    # print(read_lengths, write_lengths, position_ids)
+    # sys.exit()
     out = generate_substitute_layer_single(
         decoder_model,
         tokenizer,
@@ -325,6 +347,7 @@ def latent_qa(
         generate=generate,
         no_grad=no_grad,
         substitute_by_mask=(read_lengths, write_lengths),
+        replace_last_token_only=False,
         prepare_inputs=no_op,
         max_new_tokens=max_new_tokens,
         position_ids=position_ids,

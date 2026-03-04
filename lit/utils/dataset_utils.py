@@ -8,6 +8,8 @@ import torch
 from torch.utils.data import Dataset
 import torch.distributed as dist
 
+from .my_dataset_utils import *
+
 ###################################
 ###### Tokens and formatting ######
 ###################################
@@ -595,7 +597,7 @@ def get_dataset(train_config, tokenizer, train=True):
 
 
 def get_dataloaders(train_config, tokenizer):
-    dataset_train = get_dataset(train_config, tokenizer, train=True)
+    dataset_train = get_my_dataset(train_config, tokenizer, train=True)
     train_dataloader = torch.utils.data.DataLoader(
         dataset_train,
         num_workers=train_config.num_workers_dataloader,
@@ -609,7 +611,7 @@ def get_dataloaders(train_config, tokenizer):
         batch_sampler=get_dist_batch_sampler(dataset_train, train_config, "train"),
     )
     if train_config.eval_ppl:
-        dataset_eval = get_dataset(train_config, tokenizer, train=False)
+        dataset_eval = get_my_dataset(train_config, tokenizer, train=False)
         eval_dataloader = torch.utils.data.DataLoader(
             dataset_eval,
             num_workers=train_config.num_workers_dataloader,

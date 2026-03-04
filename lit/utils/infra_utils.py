@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import json
 from datetime import datetime
@@ -234,6 +236,26 @@ def fsdp_auto_wrap_policy(model, transformer_layer_name):
     )
     return auto_wrap_policy
 
+def clean_text(text):
+    if "Sure, I've analyzed the assistant." in text:
+        text = text.split(
+            "Sure, I've analyzed the assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>"
+        )[1]
+    prompt, completion = text.split("<|eot_id|>", 1)
+    if "assistant<|end_header_id|>" in completion:
+        completion = (
+            text.split("assistant<|end_header_id|>")[1]
+            .replace("<|end_of_text|>", "")
+            .replace("<|eot_id|>", "")
+        )
+    elif "reflect<|end_header_id|>" in completion:
+        completion = (
+            text.split("reflect<|end_header_id|>")[1]
+            .replace("<|end_of_text|>", "")
+            .replace("<|eot_id|>", "")
+        )
+    return prompt.split("\n\n")[-1].strip(), completion.strip()
+
 
 def get_model(
     model_name,
@@ -265,7 +287,7 @@ def get_model(
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            attn_implementation="flash_attention_2",
+            attn_implementation="eager",
             torch_dtype=torch.bfloat16,
             #use_cache=None,
             device_map="auto" if device == "auto" else None,

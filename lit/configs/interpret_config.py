@@ -21,3 +21,6 @@ class interpret_config:
     truncate: str = "none"
     save_name: str = ""
     prompt: str = ""
+
+    # Evaluation Dataset # data/NegotiationToM/test.json
+    eval_qa: str = "/home/z5517269/Semantic-SAE/data/paraNMT/test.txt"

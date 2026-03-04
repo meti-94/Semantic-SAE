@@ -5,7 +5,7 @@ from typing import Optional
 @dataclass
 class train_config:
     # Model and dataset
-    target_model_name: str = "MODEL_NAME"
+    target_model_name: str = "meta-llama/Meta-Llama-3-8B"
     load_model_checkpoint: str = ""    
     train_system: str = ""
     train_stimulus_completion: str = ""
@@ -21,15 +21,15 @@ class train_config:
     train_percent: float = 1.0
 
     # Evaluation and logging args
-    eval_ppl: bool = False
+    eval_ppl: bool = True
     eval_system: str = ""
     eval_stimulus_completion: str = ""
     eval_stimulus: str = ""
     eval_control: str = ""
     eval_qa: str = ""
-    eval_every_n_steps: int = 500
+    eval_every_n_steps: int = 100
     # Please change to a directory with ample space as model checkpoints are saved here
-    output_dir: str = "out/runs"
+    output_dir: str = "/srv/scratch/z5517269/out/runs"
     save_model: bool = True
     save_every_n_steps: int = 500
     use_wandb: bool = False
@@ -37,24 +37,24 @@ class train_config:
 
     # Patching args
     shift_position_ids: bool = True
-    min_layer_to_read: int = 15
+    min_layer_to_read: int = 25
     # Typically, we only read 1 layer, so set max = min + 1  
-    max_layer_to_read: int = 16  
+    max_layer_to_read: int = 26  
     layer_to_write: int = 0
     # Change only if reading from multiple layers (at once or sequentially) during training
     module_setup: str = "read-vary_write-fixed_n-fixed"
     num_layers_to_read: int = 1
     num_layers_to_sample: int = 1
 
-    # Training args
-    batch_size_training: int = 4
-    gradient_accumulation_steps: int = 1
+    # # Training args
+    batch_size_training: int = 2
+    gradient_accumulation_steps: int = 8
     gradient_clipping: bool = False
     gradient_clipping_threshold: float = 1.0
-    num_epochs: int = 5
+    num_epochs: int = 3
     num_workers_dataloader: int = 1
-    lr: float = 3e-5
-    ema_decay: float = 1
+    lr: float = 1e-5
+    ema_decay: float = 0.999
     warmup_steps: int = 0
     weight_decay: float = 0.01
     gamma: float = 0.85
