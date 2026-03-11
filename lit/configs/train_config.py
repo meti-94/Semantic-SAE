@@ -37,9 +37,9 @@ class train_config:
 
     # Patching args
     shift_position_ids: bool = True
-    min_layer_to_read: int = 25
+    min_layer_to_read: int = 15
     # Typically, we only read 1 layer, so set max = min + 1  
-    max_layer_to_read: int = 26  
+    max_layer_to_read: int = 16  
     layer_to_write: int = 0
     # Change only if reading from multiple layers (at once or sequentially) during training
     module_setup: str = "read-vary_write-fixed_n-fixed"
@@ -53,7 +53,7 @@ class train_config:
     gradient_clipping_threshold: float = 1.0
     num_epochs: int = 3
     num_workers_dataloader: int = 1
-    lr: float = 1e-5
+    lr: float = 5e-5
     ema_decay: float = 0.999
     warmup_steps: int = 0
     weight_decay: float = 0.01
