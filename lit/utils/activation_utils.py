@@ -273,6 +273,7 @@ def latent_qa(
     max_new_tokens=50, # was originally 100
     cache_target_model_grad=False,
     no_grad=False,
+    sae=None,
 ):
     tokenized_read, tokenized_write, read_lengths, write_lengths = (
         batch["tokenized_read"],
@@ -335,6 +336,8 @@ def latent_qa(
             decoder_model.device
         )
     activation_cache = [a.to(decoder_model.device) for a in activation_cache]
+    if sae is not None:
+        activation_cache = [sae(a) for a in activation_cache]
     # print(read_lengths, write_lengths, position_ids)
     # sys.exit()
     out = generate_substitute_layer_single(

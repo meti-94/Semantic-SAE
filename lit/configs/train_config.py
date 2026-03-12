@@ -63,4 +63,12 @@ class train_config:
     peft_method: str = "lora"
     use_peft: bool = True
     use_fsdp: bool = False
-    
+
+    # ReLUSAE between target activations and decoder (gradient flows through SAE)
+    use_sae: bool = True
+    sae_dim: int = 16384  # intermediate neurons (16K)
+    # SAE type: "relu" for ReLUSAE, "topk" for TopKSAE
+    sae_type: str = "topk"
+    # Fraction of non-zero activations in TopKSAE latent (e.g., 0.01 = 1%)
+    topk_percent: float = 0.01
+

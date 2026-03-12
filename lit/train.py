@@ -36,6 +36,7 @@ from lit.utils.infra_utils import (
     get_modules,
 )
 from lit.utils.activation_utils import latent_qa
+from lit.modules import ReLUSAE, TopKSAE
 
 
 def main(**kwargs):
@@ -97,9 +98,42 @@ def main(**kwargs):
     )
     ema = get_ema(decoder_model.module, decay=args.ema_decay, device=device)
 
+    sae = None
+    if args.use_sae:
+        hidden_size = decoder_model.module.config.hidden_size
+        sae_type = getattr(args, "sae_type", "relu").lower()
+        if sae_type == "topk":
+            topk_percent = getattr(args, "topk_percent", 0.01)
+            sae = TopKSAE(
+                hidden_size=hidden_size,
+                d_sae=args.sae_dim,
+                topk_percent=topk_percent,
+                dtype=torch.bfloat16,
+            ).to(device)
+            sae_name = "TopKSAE"
+        else:
+            sae = ReLUSAE(
+                hidden_size=hidden_size,
+                d_sae=args.sae_dim,
+                dtype=torch.bfloat16,
+            ).to(device)
+            sae_name = "ReLUSAE"
+        sae.train()
+        if rank == 0:
+            n_sae = sum(p.numel() for p in sae.parameters())
+            logger.info(
+                f"{sae_name}: hidden_size={hidden_size}, "
+                f"d_sae={args.sae_dim}, "
+                f"topk_percent={getattr(args, 'topk_percent', 0.01) if sae_name == 'TopKSAE' else 'N/A'}, "
+                f"params={n_sae}"
+            )
+
     # Initialize the optimizer and learning rate scheduler
+    opt_params = list(decoder_model.parameters())
+    if sae is not None:
+        opt_params = opt_params + list(sae.parameters())
     optimizer = optim.AdamW(
-        decoder_model.parameters(),
+        opt_params,
         lr=args.lr,
         weight_decay=args.weight_decay,
     )
@@ -141,17 +175,37 @@ def main(**kwargs):
                     tokenizer,
                     mask_verbs=True,
                     shift_position_ids=args.shift_position_ids,
+                    sae=sae,
                 )
                 loss = outputs.loss
                 loss = loss / args.gradient_accumulation_steps
                 loss.backward()
+                if wandb_run is not None and rank == 0 and sae is not None:
+                    with torch.no_grad():
+                        sq_sum = 0.0
+                        for p in sae.parameters():
+                            if p.grad is None:
+                                continue
+                            g = p.grad.detach()
+                            sq_sum += g.float().pow(2).sum().item()
+                        sae_grad_norm = sq_sum**0.5
+                    wandb_run.log(
+                        {
+                            "train/epoch": epoch,
+                            "train/step": epoch * len(train_dataloader) + step,
+                            "train/sae_grad_norm": sae_grad_norm,
+                        }
+                    )
                 if train_steps % args.gradient_accumulation_steps == 0:
                     if (
                         args.gradient_clipping
                         and args.gradient_clipping_threshold > 0.0
                     ):
+                        clip_params = list(decoder_model.parameters())
+                        if sae is not None:
+                            clip_params = clip_params + list(sae.parameters())
                         torch.nn.utils.clip_grad_norm_(
-                            decoder_model.parameters(),
+                            clip_params,
                             args.gradient_clipping_threshold,
                         )
                     optimizer.step()
@@ -195,6 +249,7 @@ def main(**kwargs):
                         mask_verbs=True,
                         shift_position_ids=args.shift_position_ids,
                         no_grad=True,
+                        sae=sae,
                     )
                     total_loss += outputs.loss.detach().float()
                     pbar.update(1)
@@ -227,6 +282,7 @@ def main(**kwargs):
                     train_steps,
                     logger,
                     rank,
+                    sae=sae,
                 )
 
         # End of epoch
@@ -243,6 +299,7 @@ def main(**kwargs):
                 train_steps,
                 logger,
                 rank,
+                sae=sae,
             )
             dist.barrier()
 

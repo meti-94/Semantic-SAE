@@ -98,7 +98,7 @@ def requires_grad(model, flag=True):
 ##########################
 
 
-def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, rank):
+def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, rank, sae=None):
     if rank == 0:
         logger.info(f"Saving decoder model...")
         output_dir = (
@@ -125,6 +125,9 @@ def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, 
             model.save_pretrained(dir, state_dict=state_dict)
             tokenizer.save_pretrained(dir)
             logger.info(f"{name} is saved in {dir} directory")
+    if sae is not None and rank == 0 and output_dir is not None:
+        torch.save(sae.state_dict(), f"{output_dir}/relusae.pt")
+        logger.info(f"ReLUSAE is saved in {output_dir}/relusae.pt")
 
 
 def setup_wandb(train_config, fsdp_config, **kwargs):
