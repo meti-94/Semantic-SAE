@@ -98,14 +98,14 @@ def get_nmt_text(train_config, tokenizer, train=True):
         for idx, line in enumerate(fin):
             if len(line.strip().split('\t'))==3:
                 [src, lang, trt] = line.strip().split('\t')
-                if lang == 'fa_IR':
-                    read_prompts.append([{"role": "user", "content": src}])
-                    question = f"Translate the given sentence into {lang} Lang"
-                    answer = trt
-                    QAs.append([
-                            {"role": "user", "content": question},
-                            {"role": "assistant", "content": answer}
-                            ])
+                # if lang == 'fa_IR':
+                read_prompts.append([{"role": "user", "content": src}])
+                question = f"Translate the given sentence into {lang} Lang"
+                answer = trt
+                QAs.append([
+                        {"role": "user", "content": question},
+                        {"role": "assistant", "content": answer}
+                        ])
 
     assert len(QAs)==len(read_prompts)
     return read_prompts, QAs

@@ -98,7 +98,7 @@ def requires_grad(model, flag=True):
 ##########################
 
 
-def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, rank, sae=None):
+def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, rank, sae=None, sae_config=None):
     if rank == 0:
         logger.info(f"Saving decoder model...")
         output_dir = (
@@ -126,8 +126,72 @@ def save_model(decoder_model, ema_model, tokenizer, args, epoch, steps, logger, 
             tokenizer.save_pretrained(dir)
             logger.info(f"{name} is saved in {dir} directory")
     if sae is not None and rank == 0 and output_dir is not None:
-        torch.save(sae.state_dict(), f"{output_dir}/relusae.pt")
-        logger.info(f"ReLUSAE is saved in {output_dir}/relusae.pt")
+        sae_path = f"{output_dir}/relusae.pt"
+        if sae_config is not None:
+            torch.save(
+                {"state_dict": sae.state_dict(), "config": sae_config},
+                sae_path,
+            )
+        else:
+            torch.save(sae.state_dict(), sae_path)
+        logger.info(f"SAE is saved in {sae_path}")
+
+
+def load_sae(checkpoint_dir, device, args=None, hidden_size=None):
+    """
+    Load SAE from checkpoint_dir/relusae.pt.
+    Supports: (1) bundle format {"state_dict", "config"};
+             (2) legacy state_dict only (requires args and hidden_size).
+    Returns the SAE module on device, or None if file missing.
+    """
+    path = os.path.join(checkpoint_dir, "relusae.pt")
+    if not os.path.isfile(path):
+        return None
+    data = torch.load(path, map_location="cpu", weights_only=False)
+    from lit.modules import ReLUSAE, TopKSAE
+
+    if isinstance(data, dict) and "state_dict" in data and "config" in data:
+        cfg = data["config"]
+        state_dict = data["state_dict"]
+        st = cfg.get("sae_type", "relu").lower()
+        if st == "topk":
+            sae = TopKSAE(
+                hidden_size=cfg["hidden_size"],
+                d_sae=cfg["sae_dim"],
+                topk_percent=cfg.get("topk_percent", 0.01),
+                dtype=torch.bfloat16,
+            )
+        else:
+            sae = ReLUSAE(
+                hidden_size=cfg["hidden_size"],
+                d_sae=cfg["sae_dim"],
+                dtype=torch.bfloat16,
+            )
+    else:
+        if args is None or hidden_size is None:
+            raise ValueError(
+                "relusae.pt is legacy state_dict-only format; pass args and hidden_size to load_sae"
+            )
+        st = getattr(args, "sae_type", "relu").lower()
+        topk_percent = getattr(args, "topk_percent", 0.01)
+        d_sae = getattr(args, "sae_dim", 16384)
+        if st == "topk":
+            sae = TopKSAE(
+                hidden_size=hidden_size,
+                d_sae=d_sae,
+                topk_percent=topk_percent,
+                dtype=torch.bfloat16,
+            )
+        else:
+            sae = ReLUSAE(
+                hidden_size=hidden_size,
+                d_sae=d_sae,
+                dtype=torch.bfloat16,
+            )
+        state_dict = data
+    sae = sae.to(device)
+    sae.load_state_dict(state_dict, strict=True)
+    return sae
 
 
 def setup_wandb(train_config, fsdp_config, **kwargs):

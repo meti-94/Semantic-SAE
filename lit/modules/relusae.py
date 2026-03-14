@@ -30,6 +30,12 @@ class ReLUSAE(nn.Module):
         nn.init.xavier_uniform_(self.decoder.weight)
         nn.init.zeros_(self.decoder.bias)
 
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (batch, seq_len, hidden_size) -> (batch, seq_len, d_sae)."""
+        shape = x.shape
+        x_flat = x.view(-1, shape[-1])
+        return torch.relu(self.encoder(x_flat)).view(shape[0], shape[1], -1)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """x: (batch, seq_len, hidden_size) -> (batch, seq_len, hidden_size)."""
         shape = x.shape
@@ -92,3 +98,18 @@ class TopKSAE(nn.Module):
 
         out = self.decoder(sparse_latent)
         return out.view(shape)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (batch, seq_len, hidden_size) -> (batch, seq_len, d_sae) sparse latent."""
+        shape = x.shape
+        x_flat = x.view(-1, shape[-1])
+        latent = torch.relu(self.encoder(x_flat))
+        k = max(1, min(int(self.d_sae * self.topk_percent), self.d_sae))
+        if k == self.d_sae:
+            sparse_latent = latent
+        else:
+            values, indices = torch.topk(latent, k, dim=-1)
+            mask = torch.zeros_like(latent)
+            mask.scatter_(1, indices, 1.0)
+            sparse_latent = latent * mask
+        return sparse_latent.view(shape[0], shape[1], -1)

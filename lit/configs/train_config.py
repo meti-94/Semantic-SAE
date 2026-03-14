@@ -70,5 +70,5 @@ class train_config:
     # SAE type: "relu" for ReLUSAE, "topk" for TopKSAE
     sae_type: str = "topk"
     # Fraction of non-zero activations in TopKSAE latent (e.g., 0.01 = 1%)
-    topk_percent: float = 0.01
+    topk_percent: float = 0.005
 

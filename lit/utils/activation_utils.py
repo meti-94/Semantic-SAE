@@ -274,6 +274,7 @@ def latent_qa(
     cache_target_model_grad=False,
     no_grad=False,
     sae=None,
+    return_sae_latent=False,
 ):
     tokenized_read, tokenized_write, read_lengths, write_lengths = (
         batch["tokenized_read"],
@@ -336,7 +337,10 @@ def latent_qa(
             decoder_model.device
         )
     activation_cache = [a.to(decoder_model.device) for a in activation_cache]
+    sae_latents = None
     if sae is not None:
+        if return_sae_latent:
+            sae_latents = [sae.encode(a) for a in activation_cache]
         activation_cache = [sae(a) for a in activation_cache]
     # print(read_lengths, write_lengths, position_ids)
     # sys.exit()
@@ -356,4 +360,6 @@ def latent_qa(
         position_ids=position_ids,
         use_cache=False,
     )
+    if return_sae_latent and sae_latents is not None:
+        return out, sae_latents
     return out

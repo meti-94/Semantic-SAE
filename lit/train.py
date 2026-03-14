@@ -28,6 +28,7 @@ from lit.utils.infra_utils import (
     get_logger,
     setup_wandb,
     save_model,
+    load_sae,
     get_ema,
     update_ema,
     update_config,
@@ -82,7 +83,8 @@ def main(**kwargs):
     decoder_model = get_model(
         args.target_model_name,
         tokenizer,
-        peft_config=peft_config,
+        peft_config=None if args.load_model_checkpoint else peft_config,
+        load_peft_checkpoint=args.load_model_checkpoint or None,
         fsdp_args=fsdp_args,
         device=device,
         rank=rank,
@@ -99,32 +101,52 @@ def main(**kwargs):
     ema = get_ema(decoder_model.module, decay=args.ema_decay, device=device)
 
     sae = None
+    sae_config = None
     if args.use_sae:
         hidden_size = decoder_model.module.config.hidden_size
         sae_type = getattr(args, "sae_type", "relu").lower()
-        if sae_type == "topk":
-            topk_percent = getattr(args, "topk_percent", 0.01)
-            sae = TopKSAE(
+        if args.load_model_checkpoint:
+            loaded = load_sae(
+                args.load_model_checkpoint,
+                device,
+                args=args,
                 hidden_size=hidden_size,
-                d_sae=args.sae_dim,
-                topk_percent=topk_percent,
-                dtype=torch.bfloat16,
-            ).to(device)
-            sae_name = "TopKSAE"
-        else:
-            sae = ReLUSAE(
-                hidden_size=hidden_size,
-                d_sae=args.sae_dim,
-                dtype=torch.bfloat16,
-            ).to(device)
-            sae_name = "ReLUSAE"
-        sae.train()
+            )
+            if loaded is not None:
+                sae = loaded
+                sae.train()
+                if rank == 0:
+                    logger.info(f"Loaded SAE from {args.load_model_checkpoint}/relusae.pt")
+        if sae is None:
+            if sae_type == "topk":
+                topk_percent = getattr(args, "topk_percent", 0.01)
+                sae = TopKSAE(
+                    hidden_size=hidden_size,
+                    d_sae=args.sae_dim,
+                    topk_percent=topk_percent,
+                    dtype=torch.bfloat16,
+                ).to(device)
+                sae_name = "TopKSAE"
+            else:
+                sae = ReLUSAE(
+                    hidden_size=hidden_size,
+                    d_sae=args.sae_dim,
+                    dtype=torch.bfloat16,
+                ).to(device)
+                sae_name = "ReLUSAE"
+            sae.train()
+        sae_config = {
+            "sae_type": sae_type,
+            "hidden_size": hidden_size,
+            "sae_dim": args.sae_dim,
+            "topk_percent": getattr(args, "topk_percent", 0.01),
+        }
         if rank == 0:
             n_sae = sum(p.numel() for p in sae.parameters())
             logger.info(
-                f"{sae_name}: hidden_size={hidden_size}, "
+                f"SAE: hidden_size={hidden_size}, "
                 f"d_sae={args.sae_dim}, "
-                f"topk_percent={getattr(args, 'topk_percent', 0.01) if sae_name == 'TopKSAE' else 'N/A'}, "
+                f"topk_percent={getattr(args, 'topk_percent', 0.01) if sae_type == 'topk' else 'N/A'}, "
                 f"params={n_sae}"
             )
 
@@ -283,6 +305,7 @@ def main(**kwargs):
                     logger,
                     rank,
                     sae=sae,
+                    sae_config=sae_config,
                 )
 
         # End of epoch
@@ -300,6 +323,7 @@ def main(**kwargs):
                 logger,
                 rank,
                 sae=sae,
+                sae_config=sae_config,
             )
             dist.barrier()
 
